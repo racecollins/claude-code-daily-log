@@ -72,7 +72,7 @@ Most published Claude Code memory tools either run an autonomous Claude agent in
 Requires macOS (launchd), [Claude Code](https://claude.ai/code), and `jq` (`brew install jq`).
 
 ```bash
-git clone https://github.com/YOUR_USER/claude-code-daily-log.git
+git clone https://github.com/racecollins/claude-code-daily-log.git
 cd claude-code-daily-log
 ./install.sh
 ```
