@@ -4,6 +4,14 @@ A cross-project, time-ordered memory layer for [Claude Code](https://claude.ai/c
 
 Claude Code already has per-project auto-memory, but it's siloed: notes from one working directory aren't visible in another. This adds the missing piece — a **single chronological log** that any session in any project can read at startup.
 
+## Why this exists
+
+Claude Code (the CLI) doesn't currently link your sessions across projects the way Claude.ai does in the browser. Each working directory gets its own per-project memory, but that memory is "who you are and how you work in this codebase" — not "what you actually did and when."
+
+So if you spent the morning in `project-a/` working on a bug fix, then opened a session in `project-b/` in the afternoon, the second session has no idea the first one happened. You're constantly re-explaining context Claude already knew an hour ago.
+
+This tool fills that gap with a deliberately simple model: **one chronological log file, summarized once a day, auto-loaded into every new session.** No cloud, no embeddings, no separate database — just a markdown file and two shell scripts.
+
 ## What it does
 
 Two pieces, both local, no cloud:
@@ -27,6 +35,33 @@ history into durable cross-session memory.
 ```
 
 The `↪ Next:` line only appears when there's a genuine open thread.
+
+## What you can do once it's installed
+
+Concrete things this enables that aren't possible with vanilla Claude Code:
+
+- **Cross-project continuity.** Work on Project A in the morning, switch to Project B in the afternoon — Claude in B already knows what happened in A.
+- **Pickup-where-you-left-off, even days later.** Open a new session a week after touching a project and Claude has the recent context immediately, without you re-briefing.
+- **Ask Claude about your own history.** "When did we last touch the chess game?", "What did I ship in April?", "What's still open on the auth refactor?" — Claude can answer from your log.
+- **Spot patterns over time.** Recurring blockers, projects that keep stalling, areas that consume most of your time become visible at a glance.
+- **Daily/weekly self-review.** Read the log directly to remember what you accomplished. No more "what did I even do this week?"
+- **Standup / handoff prep.** A glanceable record of what you've been working on, ready to share with a teammate or paste into a status update.
+- **Carry context across machines.** If your log lives in Obsidian (or any synced markdown), open Claude Code on your laptop and your desktop both see the same history.
+
+The `↪ Next:` line is the highest-signal bit for cross-session work — it captures "the one open thread you'd want future-you to remember" — and it's only added when there's actually one to flag.
+
+## Works great with Obsidian (but doesn't require it)
+
+The log is just a markdown file at any path you choose. **Obsidian is recommended but optional** — the scripts don't depend on it.
+
+Why Obsidian works well here:
+- The single-file format lines up perfectly with Obsidian's markdown-first model
+- Obsidian's full-text search across the vault makes the log instantly browsable
+- You can [[link]] log entries to other notes (project pages, journals, etc.)
+- Daily-notes plugin users can cross-reference the log with their own journaling
+- Vault sync gets you cross-machine context for free
+
+If you don't use Obsidian, point `CCDL_LOG_FILE` at any markdown file you'd browse with another editor — VS Code, Bear, Notion (via export), or just `cat`/`less`. Everything still works.
 
 ## Why "cron-safe"?
 
