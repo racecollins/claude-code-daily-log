@@ -14,11 +14,13 @@ This tool fills that gap with a deliberately simple model: **one chronological l
 
 ## What it does
 
-Two pieces, both local, no cloud:
+Three pieces, all local, no cloud:
 
 1. **Nightly digest** — a launchd job runs once a day, extracts your Claude Code session transcripts (using `jq`, no LLM in the cron), pipes them to `claude -p` for summarization, and appends a high-level dated entry to a markdown file (e.g. a note in your Obsidian vault).
 
-2. **Session-start loader** — a `SessionStart` hook injects the recent ~14 days from the log, plus a raw extract of "today so far" from any sessions earlier today, as additional context whenever you open Claude Code in any directory.
+2. **Session-start loader** — a `SessionStart` hook injects four sections of cross-session context whenever you open Claude Code in any directory: (a) all historical entries that mention the project you're currently working in, (b) the recent ~14 days from the log, (c) a raw extract of "today so far" from any sessions earlier today, and (d) a list of currently open threads.
+
+3. **Open-thread tracker** — every `↪ Next:` line from the daily summary is auto-captured into a separate `Open Threads.md` file. Each subsequent daily run feeds the open threads back to Claude alongside the day's activity, and Claude marks any that the day's work resolved (flipping `- [ ]` to `- [x]` with a close date). It's a quiet, auto-maintained list of "what you said you'd come back to" — exactly the kind of thing humans are bad at tracking manually.
 
 The output looks like:
 
@@ -89,12 +91,14 @@ All settings live in `~/.config/claude-code-daily-log/config.sh`. Override any o
 
 | Var | Default | Purpose |
 |---|---|---|
-| `CCDL_LOG_FILE` | (required) | Path to the markdown file to append to |
+| `CCDL_LOG_FILE` | (required) | Path to the markdown file to append daily entries to |
+| `CCDL_THREADS_FILE` | (next to `CCDL_LOG_FILE`) | Path to the auto-maintained open-threads file |
 | `CCDL_PROJECTS_DIR` | `~/.claude/projects` | Where Claude Code stores transcripts |
 | `CCDL_CLAUDE_BIN` | `claude` (on PATH) | Path to the Claude Code binary |
 | `CCDL_JQ_BIN` | `/usr/bin/jq` | Path to jq |
-| `CCDL_MAX_DAYS` | `14` | Days of history loaded at session start |
-| `CCDL_MAX_LOG_BYTES` | `30000` | Cap on log content injected per session |
+| `CCDL_MAX_DAYS` | `14` | Days of recent history loaded at session start |
+| `CCDL_MAX_LOG_BYTES` | `30000` | Cap on recent-days content injected per session |
+| `CCDL_MAX_PROJECT_BYTES` | `15000` | Cap on per-project history content injected per session |
 | `CCDL_MAX_TODAY_BYTES` | `10000` | Cap on "today so far" content injected per session |
 | `CCDL_DIGEST_BYTES` | `500000` | Cap on digest material sent to `claude -p` nightly |
 

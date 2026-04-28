@@ -1,7 +1,8 @@
 #!/bin/zsh
 # claude-code-daily-log: nightly digest writer
 # Reads today's Claude Code session transcripts, summarizes them with `claude -p`,
-# and appends a high-level dated section to a markdown file (e.g. an Obsidian note).
+# appends a high-level dated section to a markdown file (e.g. an Obsidian note),
+# and tracks open threads (the ↪ Next: lines) across days in a separate file.
 
 set -euo pipefail
 setopt NULL_GLOB
@@ -10,6 +11,7 @@ CONFIG="${CCDL_CONFIG:-$HOME/.config/claude-code-daily-log/config.sh}"
 [ -f "$CONFIG" ] && source "$CONFIG"
 
 LOG_FILE="${CCDL_LOG_FILE:?CCDL_LOG_FILE not set — run install.sh or define it in $CONFIG}"
+THREADS_FILE="${CCDL_THREADS_FILE:-$(dirname "$LOG_FILE")/Claude Code Open Threads.md}"
 PROJECTS_DIR="${CCDL_PROJECTS_DIR:-$HOME/.claude/projects}"
 CLAUDE="${CCDL_CLAUDE_BIN:-claude}"
 JQ="${CCDL_JQ_BIN:-/usr/bin/jq}"
@@ -17,6 +19,7 @@ DIGEST_BYTES="${CCDL_DIGEST_BYTES:-500000}"
 
 DATE_TODAY=$(date +%Y-%m-%d)
 
+# --- Step 1: Build digest from today's session JSONLs ---
 DIGEST_FILE=$(mktemp -t ccdl-digest)
 trap 'rm -f "$DIGEST_FILE"' EXIT
 
@@ -66,6 +69,28 @@ fi
 
 DIGEST=$(head -c "$DIGEST_BYTES" "$DIGEST_FILE")
 
+# --- Step 2: Read currently open threads to feed back to claude ---
+OPEN_THREADS_BLOCK=""
+if [ -f "$THREADS_FILE" ]; then
+  OPEN_THREADS_BLOCK=$(awk '/^- \[ \] /' "$THREADS_FILE" || true)
+fi
+
+THREADS_PROMPT_SECTION=""
+if [ -n "$OPEN_THREADS_BLOCK" ]; then
+  THREADS_PROMPT_SECTION=$(cat <<EOF
+
+
+Currently open threads from previous days are listed below. After your daily summary, output a section that starts with the literal line "===RESOLVED===" followed by ONE LINE PER THREAD that today's work clearly resolved. Copy each resolved thread VERBATIM (the entire line starting with "- [ ]") from the list. If nothing was resolved, output exactly:
+===RESOLVED===
+(none)
+
+Open threads:
+${OPEN_THREADS_BLOCK}
+EOF
+)
+fi
+
+# --- Step 3: Build prompt and call claude -p ---
 PROMPT=$(cat <<EOF
 Write a high-level daily digest of today's Claude Code work for a personal log. The reader (Claude in a future conversation) needs the gist, not the play-by-play.
 
@@ -97,29 +122,74 @@ Rules:
 - No bullet lists. Prose only, one short paragraph per project, then the optional Next line.
 - Only include the Next line when there is a genuine open thread. Skip it for clean wraps.
 - Total length under 250 words.
-- If no real work happened across any project, output literally: SKIP
+- If no real work happened across any project, output literally: SKIP${THREADS_PROMPT_SECTION}
 EOF
 )
 
 RAW_SUMMARY=$("$CLAUDE" -p "$PROMPT" --allowed-tools "" 2>&1)
 
-# Strip anything before the date header — agents sometimes echo prompt fragments
-SUMMARY=$(printf '%s\n' "$RAW_SUMMARY" | awk -v hdr="## ${DATE_TODAY}" '
+# --- Step 4: Strip preamble; split summary from RESOLVED section ---
+TRIMMED=$(printf '%s\n' "$RAW_SUMMARY" | awk -v hdr="## ${DATE_TODAY}" '
   $0 == hdr { found = 1 }
   found { print }
 ')
 
-if [ "$RAW_SUMMARY" = "SKIP" ] || [ -z "$SUMMARY" ]; then
+if [ "$RAW_SUMMARY" = "SKIP" ] || [ -z "$TRIMMED" ]; then
   echo "[$(date)] Trivial day or empty summary, skipping."
   exit 0
 fi
 
-mkdir -p "$(dirname "$LOG_FILE")"
+SUMMARY=$(printf '%s\n' "$TRIMMED" | awk '/^===RESOLVED===$/{exit} {print}')
+RESOLVED_LINES=$(printf '%s\n' "$TRIMMED" | awk '/^===RESOLVED===$/{found=1; next} found && /^- \[ \] /')
 
+# --- Step 5: Append daily summary to log ---
+mkdir -p "$(dirname "$LOG_FILE")"
 if [ -s "$LOG_FILE" ]; then
   printf '\n\n%s\n' "$SUMMARY" >> "$LOG_FILE"
 else
   printf '%s\n' "$SUMMARY" >> "$LOG_FILE"
 fi
 
+# --- Step 6: Apply resolutions to open threads ---
+if [ -n "$RESOLVED_LINES" ] && [ -f "$THREADS_FILE" ]; then
+  TMP_THREADS=$(mktemp -t ccdl-threads)
+  cp "$THREADS_FILE" "$TMP_THREADS"
+  while IFS= read -r resolved; do
+    [ -z "$resolved" ] && continue
+    closed=$(printf '%s' "$resolved" | sed "s|^- \[ \] \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) |- [x] \1 → ${DATE_TODAY} |")
+    awk -v open="$resolved" -v closed="$closed" '
+      $0 == open { print closed; next }
+      { print }
+    ' "$TMP_THREADS" > "${TMP_THREADS}.new" && mv "${TMP_THREADS}.new" "$TMP_THREADS"
+  done <<< "$RESOLVED_LINES"
+  mv "$TMP_THREADS" "$THREADS_FILE"
+fi
+
+# --- Step 7: Extract new ↪ Next: lines from today's summary, append as open threads ---
+NEW_THREADS=$(printf '%s\n' "$SUMMARY" | awk -v today="$DATE_TODAY" '
+  /^### / {
+    project = substr($0, 5)
+    sub(/[[:space:]]+$/, "", project)
+  }
+  /^↪ Next:/ {
+    thread = $0
+    sub(/^↪ Next:[[:space:]]*/, "", thread)
+    sub(/[[:space:]]+$/, "", thread)
+    if (project != "" && thread != "") {
+      print "- [ ] " today " [" project "] " thread
+    }
+  }
+')
+
+if [ -n "$NEW_THREADS" ]; then
+  if [ ! -f "$THREADS_FILE" ]; then
+    mkdir -p "$(dirname "$THREADS_FILE")"
+    printf '# Open Threads\n\nTracked automatically from `↪ Next:` lines in your daily log. Open threads are `- [ ]`; resolved ones flip to `- [x]` with a closed date.\n\n' > "$THREADS_FILE"
+  fi
+  printf '%s\n' "$NEW_THREADS" >> "$THREADS_FILE"
+fi
+
 echo "[$(date)] Daily log updated for ${DATE_TODAY}."
+[ -n "$NEW_THREADS" ] && echo "  + $(printf '%s\n' "$NEW_THREADS" | wc -l | tr -d ' ') new open thread(s)"
+[ -n "$RESOLVED_LINES" ] && echo "  ✓ $(printf '%s\n' "$RESOLVED_LINES" | wc -l | tr -d ' ') resolved thread(s)"
+exit 0

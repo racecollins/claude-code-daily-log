@@ -6,6 +6,10 @@
 # Common choice: a note in your Obsidian vault.
 # CCDL_LOG_FILE="$HOME/Documents/Obsidian Vault/MyVault/Claude Code Daily Log.md"
 
+# Optional: path to the open-threads file (auto-tracked from ↪ Next: lines).
+# Defaults to "Claude Code Open Threads.md" next to CCDL_LOG_FILE.
+# CCDL_THREADS_FILE="$HOME/Documents/Obsidian Vault/MyVault/Claude Code Open Threads.md"
+
 # Where Claude Code stores session transcripts (rarely needs changing).
 # CCDL_PROJECTS_DIR="$HOME/.claude/projects"
 
@@ -23,6 +27,9 @@
 
 # Hard cap on bytes injected from today-so-far raw extract (default 10000).
 # CCDL_MAX_TODAY_BYTES=10000
+
+# Hard cap on bytes injected from per-project history section (default 15000).
+# CCDL_MAX_PROJECT_BYTES=15000
 
 # Hard cap on bytes of digest material sent to claude -p in the nightly job
 # (default 500000 — 500KB. Most days are well under this).
